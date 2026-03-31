@@ -83,17 +83,9 @@ async def trigger_processing():
     Useful for testing without waiting for a Pub/Sub notification.
     """
     try:
-        emails = fetch_unread_emails(max_results=5)
-        results = []
-        for email in emails:
-            results.append({
-                "id": email["id"],
-                "sender": email["sender"],
-                "subject": email["subject"],
-                "status": "queued_for_processing",
-                # Phase 3 will add: intent, extracted_slots, action_taken
-            })
-        return {"triggered": True, "emails_queued": len(results), "details": results}
+        from app.services.thread_analyzer import process_unread_emails_pipeline
+        result = process_unread_emails_pipeline()
+        return {"triggered": True, "result": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

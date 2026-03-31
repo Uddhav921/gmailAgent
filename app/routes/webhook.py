@@ -25,23 +25,16 @@ router = APIRouter()
 
 async def process_new_email(history_id: str, email_address: str):
     """
-    Background task: fetch and process the new email.
-    This will be extended in Phase 3 to run through:
-      - LLM intent detection
-      - Time extraction
-      - Scheduling logic
-      - Reply generation
+    Background task: fetch and process the new email via the AI Orchestrator.
     """
     logger.info(f"Processing new email notification. History ID: {history_id}, User: {email_address}")
 
-    # TODO (Phase 3): Call LLM pipeline here
-    # For now: log the notification and fetch unread emails
-    from app.services.gmail_service import fetch_unread_emails
-    emails = fetch_unread_emails(max_results=5)
-    for email in emails:
-        logger.info(f"  📧 From: {email['sender']} | Subject: {email['subject']}")
-        # Mark as read after processing
-        mark_as_read(email["id"])
+    from app.services.thread_analyzer import process_unread_emails_pipeline
+    try:
+        result = process_unread_emails_pipeline()
+        logger.info(f"Pipeline executed via Webhook: {result}")
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
 
 
 @router.post("/gmail")
