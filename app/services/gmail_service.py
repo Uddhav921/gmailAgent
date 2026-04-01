@@ -71,30 +71,38 @@ def get_authorization_url() -> tuple[str, str]:
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
+        use_code_verifier=False,  # Disable PKCE for backend server
     )
-    # Store flow so the callback can reuse it with the original code_verifier (PKCE)
+    # Store flow for callback processing
     _flow_store[state] = flow
+    logger.info(f"Created OAuth flow with state: {state}")
     return auth_url, state
 
 
 def exchange_code_for_tokens(code: str, state: str = "") -> dict:
     """Exchange authorization code for access/refresh tokens."""
-    # Reuse the stored flow to preserve the PKCE code_verifier
+    # Retrieve the stored flow using the state parameter
     flow = _flow_store.pop(state, None) or create_oauth_flow()
-    flow.fetch_token(code=code)
-    creds = flow.credentials
-    token_data = {
-        "token": creds.token,
-        "refresh_token": creds.refresh_token,
-        "token_uri": creds.token_uri,
-        "client_id": creds.client_id,
-        "client_secret": creds.client_secret,
-        "scopes": list(creds.scopes) if creds.scopes else SCOPES,
-    }
-    # Persist token locally
-    with open(TOKEN_PATH, "w") as f:
-        json.dump(token_data, f)
-    return token_data
+    
+    try:
+        flow.fetch_token(code=code)
+        creds = flow.credentials
+        token_data = {
+            "token": creds.token,
+            "refresh_token": creds.refresh_token,
+            "token_uri": creds.token_uri,
+            "client_id": creds.client_id,
+            "client_secret": creds.client_secret,
+            "scopes": list(creds.scopes) if creds.scopes else SCOPES,
+        }
+        # Persist token locally
+        with open(TOKEN_PATH, "w") as f:
+            json.dump(token_data, f)
+        logger.info("Token saved successfully")
+        return token_data
+    except Exception as e:
+        logger.error(f"Token exchange failed: {str(e)}")
+        raise
 
 
 def load_credentials() -> Optional[Credentials]:
