@@ -1,10 +1,12 @@
 """MongoDB User Model (Pydantic)."""
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class UserModel(BaseModel):
+    model_config = ConfigDict(use_attribute_docstrings=True)
+    
     email: str
     name: Optional[str] = None
     timezone: str = "UTC"
@@ -12,6 +14,7 @@ class UserModel(BaseModel):
     preferred_hours_end: int = 18        # e.g. 6 PM
     calendar_id: str = "primary"
     supermemory_user_id: Optional[str] = None
+    role: str = "participant"            # "organizer" | "participant" | "priority" (Phase 7)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_seen: datetime = Field(default_factory=datetime.utcnow)
 

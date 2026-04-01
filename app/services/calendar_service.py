@@ -71,3 +71,24 @@ def create_event(
     except HttpError as error:
         logger.error(f"An error occurred creating event: {error}")
         return None
+
+def get_free_busy(user_email: str, time_min_utc_iso: str, time_max_utc_iso: str) -> dict:
+    """
+    Query the Calendar API for free/busy status of a particular user.
+    Returns a dict with 'busy' slots containing 'start' and 'end' datetimes.
+    """
+    service = get_calendar_service()
+    
+    body = {
+        "timeMin": time_min_utc_iso,
+        "timeMax": time_max_utc_iso,
+        "timeZone": "UTC",
+        "items": [{"id": user_email}]
+    }
+    
+    try:
+        response = service.freebusy().query(body=body).execute()
+        return response.get('calendars', {}).get(user_email, {}).get('busy', [])
+    except HttpError as error:
+        logger.error(f"Error fetching free/busy for {user_email}: {error}")
+        return []

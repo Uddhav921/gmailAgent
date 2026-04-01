@@ -6,20 +6,30 @@ including intent detection, data extraction, and thread summarization.
 
 import json
 import logging
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Configure the Gemini API client
+# Configure the new Gemini API client
 if settings.gemini_api_key:
-    genai.configure(api_key=settings.gemini_api_key)
-    # Using 2.5-flash with your fresh API key
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    _client = genai.Client(api_key=settings.gemini_api_key)
+    _MODEL = "gemini-2.0-flash"
 else:
     logger.warning("GEMINI_API_KEY is not set. LLM calls will fail.")
-    model = None
+    _client = None
+    _MODEL = None
+
+
+def _generate(prompt: str) -> str:
+    """Internal helper: call Gemini and return the response text."""
+    response = _client.models.generate_content(
+        model=_MODEL,
+        contents=prompt,
+    )
+    return response.text.strip()
 
 
 def detect_intent(email_text: str) -> str:
@@ -27,8 +37,8 @@ def detect_intent(email_text: str) -> str:
     Analyzes the email text to determine the core intent.
     Returns one of: 'scheduling', 'query', 'clarification', or 'unknown'.
     """
-    if not model:
-        return "unknown"
+    if not _client:
+        return _fallback_intent_detection(email_text)
 
     prompt = f"""
     Analyze the following email and determine the user's intent.
@@ -39,8 +49,7 @@ def detect_intent(email_text: str) -> str:
     {email_text}
     """
     try:
-        response = model.generate_content(prompt)
-        text = response.text.strip().lower()
+        text = _generate(prompt).lower()
         if "scheduling" in text:
             return "scheduling"
         elif "query" in text:
@@ -51,15 +60,49 @@ def detect_intent(email_text: str) -> str:
             return "unknown"
     except Exception as e:
         logger.error(f"Quota issue or Gemini API failure: {e}")
-        # HACKATHON BYPASS: Assume scheduling to let the demo proceed!
+        # FALLBACK: Use keyword-based detection when API fails
+        return _fallback_intent_detection(email_text)
+
+
+def _fallback_intent_detection(email_text: str) -> str:
+    """
+    Keyword-based intent detection fallback (no API needed).
+    Used when Gemini API is unavailable or quota exceeded.
+    """
+    text_lower = email_text.lower()
+    
+    # Scheduling keywords: meeting requests, calendar, dates/times
+    scheduling_keywords = [
+        "schedule", "meeting", "call", "sync", "book", "calendar",
+        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+        "tomorrow", "next week", "this week", "afternoon", "morning", "evening",
+        "2pm", "3pm", "4pm", "10am", "11am", "2:00", "3:00", "4:00", "10:00", "11:00"
+    ]
+    
+    # Clarification keywords: requests for more info, unclear input
+    clarification_keywords = [
+        "could you please", "can you clarify", "what do you mean", "sorry i didn't",
+        "didn't understand", "not clear", "more details", "explain please"
+    ]
+    
+    # Check for scheduling intent
+    if any(keyword in text_lower for keyword in scheduling_keywords):
         return "scheduling"
+    
+    # Check for clarification requests
+    if any(keyword in text_lower for keyword in clarification_keywords):
+        return "clarification"
+    
+    # Default to query for general questions, statements, and conversations
+    # (e.g., "What's your favorite food?", "Tell me about...", "How are you?")
+    return "query"
 
 
 def extract_time_slots(email_text: str) -> list[dict]:
     """
     Extracts mentioning dates and times into a strict list of JSON dicts.
     """
-    if not model:
+    if not _client:
         return []
 
     prompt = f"""
@@ -80,8 +123,7 @@ def extract_time_slots(email_text: str) -> list[dict]:
     {email_text}
     """
     try:
-        response = model.generate_content(prompt)
-        text = response.text.strip()
+        text = _generate(prompt)
         
         # Guard against markdown code blocks
         if text.startswith("```"):
@@ -91,7 +133,7 @@ def extract_time_slots(email_text: str) -> list[dict]:
 
         return json.loads(text.strip())
     except json.JSONDecodeError as je:
-        logger.error(f"Failed to decode JSON from Gemini response: {response.text} | Error: {je}")
+        logger.error(f"Failed to decode JSON from Gemini response: {text} | Error: {je}")
         return []
         
     except Exception as e:
@@ -107,7 +149,7 @@ def summarize_thread(thread_messages: list[str]) -> str:
     Summarizes a list of simple string email bodies to 2-3 sentences.
     Useful for 'query' intents where the user asks for status.
     """
-    if not model:
+    if not _client:
         return ""
 
     text_block = "\\n\\n---\\n\\n".join(thread_messages)
@@ -119,8 +161,7 @@ def summarize_thread(thread_messages: list[str]) -> str:
     {text_block}
     """
     try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Thread summarization failed: {e}")
         return "Failed to summarize thread context."
@@ -130,7 +171,7 @@ def generate_clarification(email_text: str) -> str:
     """
     Generates a polite follow-up requesting clearer time information.
     """
-    if not model:
+    if not _client:
         return "Could you please clarify the specific date, time, and timezone you would like to meet?"
 
     prompt = f"""
@@ -143,8 +184,7 @@ def generate_clarification(email_text: str) -> str:
     {email_text}
     """
     try:
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        return _generate(prompt)
     except Exception as e:
         logger.error(f"Clarification generation failed: {e}")
         return "Could you please clarify the specific date, time, and timezone you would like to meet?"
